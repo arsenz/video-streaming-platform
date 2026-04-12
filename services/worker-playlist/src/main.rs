@@ -8,7 +8,7 @@ use shared_core::{
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-const RESOLUTIONS: [&str; 4] = ["1080p", "720p", "480p", "360p"];
+const RESOLUTIONS: [&str; 3] = ["1080p", "720p", "480p"];
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -100,15 +100,14 @@ async fn do_process_playlist(job: &PlaylistJob, infra: &CoreInfrastructure, work
     let mut fully_processed = Vec::new();
 
     for res in RESOLUTIONS {
-        if let Some(&count) = processed_counts.get(res) {
-            if count > 0 && count == total_segments {
+        if let Some(&count) = processed_counts.get(res)
+            && count > 0 && count == total_segments {
                 fully_processed.push(res);
                 
                 let (bandwidth, resolution) = match res {
                     "1080p" => ("5000000", "1920x1080"),
                     "720p"  => ("2800000", "1280x720"),
                     "480p"  => ("1400000", "854x480"),
-                    "360p"  => ("800000", "640x360"),
                     _ => ("1000000", "0x0"),
                 };
 
@@ -118,7 +117,6 @@ async fn do_process_playlist(job: &PlaylistJob, infra: &CoreInfrastructure, work
                 ));
                 master_content.push_str(&format!("{}/playlist.m3u8\n", res));
             }
-        }
     }
 
     let master_path = format!("{}/master.m3u8", work_dir);

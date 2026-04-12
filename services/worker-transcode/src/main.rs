@@ -47,7 +47,8 @@ async fn main() -> Result<()> {
                     Ok(_) => {
                         infra.queue.ack_job(active_queue, &receipt_handle).await?;
                     }
-                    Err(_e) => {
+                    Err(e) => {
+                        tracing::error!("Failed to process transcode job: {:#}", e);
                         // Do not ack the job, let it time out and retry
                     }
                 }

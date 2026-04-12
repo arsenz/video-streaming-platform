@@ -5,7 +5,7 @@ echo "Initializing LocalStack infrastructure..."
 awslocal sqs create-queue --queue-name transcode-queue-high
 awslocal sqs create-queue --queue-name transcode-queue-low
 awslocal sqs create-queue --queue-name segmentation-queue
-awslocal sqs create-queue --queue-name playlist-queue.fifo --attributes FifoQueue=true
+awslocal sqs create-queue --queue-name playlist-queue.fifo --attributes FifoQueue=true,ContentBasedDeduplication=true
 
 # 2. Create Bucket
 awslocal s3 mb s3://video-uploads

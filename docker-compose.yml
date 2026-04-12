@@ -15,16 +15,82 @@ services:
       - QUEUE_BASE_URL=http://localhost:4566/000000000000
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
-      # This runs our script automatically when the container boots!
       - "./local-stack-init/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh"
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api-server
+
   api-server:
     build: 
       context: .
-      dockerfile: services/api-server/Dockerfile
+      args:
+        BIN_NAME: api-server
     ports:
       - "3000:3000"
     environment:
       - AWS_ENDPOINT_URL=http://localstack:4566
       - DYNAMODB_TABLE=videos
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+      - R2_ENDPOINT_URL=http://localstack:4566
+      - QUEUE_BASE_URL=http://localstack:4566/000000000000
+      - PUBLIC_CDN_URL=http://localhost:4566
     depends_on:
       - localstack
+
+  worker-segment:
+    build: 
+      context: .
+      args:
+        BIN_NAME: worker-segment
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - DYNAMODB_TABLE=videos
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+      - R2_ENDPOINT_URL=http://localstack:4566
+      - QUEUE_BASE_URL=http://localstack:4566/000000000000
+    depends_on:
+      - localstack
+      - api-server
+
+  worker-transcode:
+    build: 
+      context: .
+      args:
+        BIN_NAME: worker-transcode
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - DYNAMODB_TABLE=videos
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+      - R2_ENDPOINT_URL=http://localstack:4566
+      - QUEUE_BASE_URL=http://localstack:4566/000000000000
+    depends_on:
+      - localstack
+      - worker-segment
+
+  worker-playlist:
+    build: 
+      context: .
+      args:
+        BIN_NAME: worker-playlist
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - DYNAMODB_TABLE=videos
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+      - R2_ENDPOINT_URL=http://localstack:4566
+      - QUEUE_BASE_URL=http://localstack:4566/000000000000
+    depends_on:
+      - localstack
+      - worker-transcode

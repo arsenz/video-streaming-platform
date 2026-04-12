@@ -15,6 +15,7 @@ struct TestEnvironment {
     api_server: Child,
     segment_worker: Child,
     transcode_worker: Child,
+    playlist_worker: Child,
 }
 
 impl TestEnvironment {
@@ -66,10 +67,25 @@ impl TestEnvironment {
             .spawn()
             .expect("Failed to start transcode worker");
 
+        let playlist_worker = Command::new(get_binary_path("worker-playlist"))
+            .current_dir("../../")
+            .env("AWS_ENDPOINT_URL", "http://localhost:4566")
+            .env("R2_ENDPOINT_URL", "http://localhost:4566")
+            .env("QUEUE_BASE_URL", "http://localhost:4566/000000000000")
+            .env("PATH", format!("/opt/homebrew/bin:/usr/local/bin:{}", std::env::var("PATH").unwrap_or_default()))
+            .env("AWS_ACCESS_KEY_ID", "test")
+            .env("AWS_SECRET_ACCESS_KEY", "test")
+            .env("AWS_REGION", "us-east-1")
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("Failed to start playlist worker");
+
         Self {
             api_server,
             segment_worker,
             transcode_worker,
+            playlist_worker,
         }
     }
 }
@@ -80,6 +96,7 @@ impl Drop for TestEnvironment {
         self.api_server.kill().ok();
         self.segment_worker.kill().ok();
         self.transcode_worker.kill().ok();
+        self.playlist_worker.kill().ok();
     }
 }
 
@@ -140,8 +157,8 @@ async fn full_pipeline_e2e_test() {
         sleep(Duration::from_secs(2)).await;
         let res = client.get(format!("{}/status/{}", api_url, video_id)).send().await;
         
-        if let Ok(res) = res {
-            if res.status().is_success() {
+        if let Ok(res) = res
+            && res.status().is_success() {
                 let status_data: serde_json::Value = res.json().await.unwrap();
                 let state = status_data["status"].as_str().unwrap();
                 println!("Status poll {}: {}", i, state);
@@ -151,7 +168,6 @@ async fn full_pipeline_e2e_test() {
                     break;
                 }
             }
-        }
     }
 
     assert!(is_ready, "Video did not reach 'ready' state within timeout");
