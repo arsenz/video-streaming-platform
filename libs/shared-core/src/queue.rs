@@ -25,9 +25,12 @@ pub trait JobQueue: Send + Sync {
     async fn pull_job(&self, queue_url: &str) -> Result<Option<(String, String)>, QueueError>;
     /// Acknowledges (deletes) the message from the queue upon successful completion
     async fn ack_job(&self, queue_url: &str, receipt_handle: &str) -> Result<(), QueueError>;
+    /// Pushes a message to a FIFO queue with a message group ID
+    async fn push_fifo_job(&self, queue_url: &str, payload: &str, group_id: &str) -> Result<(), QueueError>;
 }
 
-pub struct SqsQueue {
+pub struct 
+SqsQueue {
     client: Client,
 }
 
@@ -61,7 +64,17 @@ impl JobQueue for SqsQueue {
         Ok(())
     }
 
-    // Inside your SqsQueue implementation block:
+    async fn push_fifo_job(&self, queue_url: &str, payload: &str, group_id: &str) -> Result<(), QueueError> {
+        self.client
+            .send_message()
+            .queue_url(queue_url)
+            .message_body(payload)
+            .message_group_id(group_id)
+            .send()
+            .await
+            .map_err(|e| QueueError::PushFailed(e.to_string()))?;
+        Ok(())
+    }
 
     async fn pull_job(&self, queue_url: &str) -> Result<Option<(String, String)>, QueueError> {
         let response = self
@@ -124,6 +137,11 @@ mod tests {
     #[async_trait]
     impl JobQueue for MockQueue {
         async fn push_job(&self, _queue_url: &str, payload: &str) -> Result<(), QueueError> {
+            self.pending.lock().unwrap().push_back(payload.to_string());
+            Ok(())
+        }
+
+        async fn push_fifo_job(&self, _queue_url: &str, payload: &str, _group_id: &str) -> Result<(), QueueError> {
             self.pending.lock().unwrap().push_back(payload.to_string());
             Ok(())
         }

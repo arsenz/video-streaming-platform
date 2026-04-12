@@ -171,8 +171,7 @@ async fn do_process_video(
     info!(video_id = %job.video_id, count = total_segments, "Video segmented successfully");
 
     // Update DB with the total number of individual transcode jobs
-    let total_jobs = total_segments * (RESOLUTIONS.len() as u32);
-    db.set_total_segments(&job.video_id, total_jobs).await?;
+    db.set_total_segments(&job.video_id, total_segments).await?;
 
     // Fan-out to the Transcode Queues
     for segment in segments {

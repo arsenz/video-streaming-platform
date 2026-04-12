@@ -3,7 +3,8 @@ members = [
     "libs/shared-core",
     "services/api-server",
     "services/worker-segment",
-    "services/worker-transcode"
+    "services/worker-transcode",
+    "services/worker-playlist"
 ]
 resolver = "2"
 

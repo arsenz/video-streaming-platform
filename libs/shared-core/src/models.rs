@@ -12,3 +12,10 @@ pub struct SegmentationJob {
     pub video_id: String,
     pub file_name: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct PlaylistJob {
+    pub video_id: String,
+    pub res: String,
+    pub segment_count: u32,
+}

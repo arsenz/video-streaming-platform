@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use shared_core::{
-    db::VideoStatus,
     infra::CoreInfrastructure,
     models::TranscodeJob,
     queue::JobQueue,
@@ -8,8 +7,6 @@ use shared_core::{
 use std::path::Path;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-const RESOLUTIONS: [&str; 3] = ["1080p", "720p", "480p"];
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -152,79 +149,29 @@ async fn do_process_transcode(
 
     //  Update the Database Atomically
     // This uses the ADD expression you set up to handle parallel worker completion perfectly
-    let is_final_segment = infra
+    let segments_count = infra
         .db
-        .increment_processed(&job.video_id)
+        .increment_processed(&job.video_id, &job.resolution)
         .await
         .context("Failed to increment processed segment count")?;
 
-    if let Some(total_jobs_completed) = is_final_segment {
-        info!(video_id = %job.video_id, total = total_jobs_completed, "✅ Final segment transcoded! Generating HLS Playlists...");
+    if let Some(segments_count) = segments_count {
+        info!(video_id = %job.video_id, total = segments_count, "Final segment transcoded for {} resolution", job.resolution);
 
-        // Generate and upload the HLS Playlists
-        generate_hls_playlists(job, infra, total_jobs_completed).await?;
+        let playlist_job = shared_core::models::PlaylistJob {
+            video_id: job.video_id.clone(),
+            res: job.resolution.clone(),
+            segment_count: segments_count,
+        };
+        let payload = serde_json::to_string(&playlist_job)?;
+        let queue_url = format!("{}/playlist-queue.fifo", infra.queue_base_url);
 
-        // Finally, Update Status to 'Ready'
         infra
-            .db
-            .update_status(&job.video_id, VideoStatus::Ready)
+            .queue
+            .push_fifo_job(&queue_url, &payload, &job.video_id)
             .await
-            .context("Failed to update video status to Ready")?;
+            .context("Failed to push playlist job")?;
     }
 
-    Ok(())
-}
-
-async fn generate_hls_playlists(
-    job: &TranscodeJob,
-    infra: &CoreInfrastructure,
-    total_jobs: u32,
-) -> Result<()> {
-    // The total jobs created was segments_count * number of resolutions.
-    // By dividing by 3 (the number of resolutions), we get the segment count.
-
-    let segments_count = total_jobs / (RESOLUTIONS.len() as u32);
-
-    //  Generate Variant Playlists recursively for each resolution
-    for res in &RESOLUTIONS {
-        let mut playlist = String::from(
-            "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n",
-        );
-        for i in 0..segments_count {
-            playlist.push_str(&format!("#EXTINF:4.000000,\nsegment_{:03}.ts\n", i));
-        }
-        playlist.push_str("#EXT-X-ENDLIST\n");
-
-        let m3u8_key = format!("transcoded/{}/{}/playlist.m3u8", job.video_id, res);
-
-        let temp_m3u8_path = format!("/tmp/{}_{}.m3u8", job.video_id, res);
-        tokio::fs::write(&temp_m3u8_path, &playlist).await?;
-        infra
-            .storage
-            .upload_file(&m3u8_key, &temp_m3u8_path)
-            .await?;
-        tokio::fs::remove_file(&temp_m3u8_path).await.ok();
-    }
-
-    //  Generate Master Playlist
-    let master_m3u8 = "#EXTM3U
-#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080
-1080p/playlist.m3u8
-#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720
-720p/playlist.m3u8
-#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=854x480
-480p/playlist.m3u8
-".to_string();
-
-    let master_key = format!("transcoded/{}/master.m3u8", job.video_id);
-    let temp_master_path = format!("/tmp/{}_master.m3u8", job.video_id);
-    tokio::fs::write(&temp_master_path, &master_m3u8).await?;
-    infra
-        .storage
-        .upload_file(&master_key, &temp_master_path)
-        .await?;
-    tokio::fs::remove_file(&temp_master_path).await.ok();
-
-    info!(video_id = %job.video_id, "HLS playlists generated and uploaded successfully.");
     Ok(())
 }

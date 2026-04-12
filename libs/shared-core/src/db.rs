@@ -119,10 +119,9 @@ impl DatabaseClient {
             .update_item()
             .table_name(&self.table_name)
             .key("video_id", AttributeValue::S(video_id.to_string()))
-            .update_expression("SET total_segments = :total, processed_segments = :zero, #s = :status")
+            .update_expression("SET total_raw_segments = :total, #s = :status")
             .expression_attribute_names("#s", "status")
             .expression_attribute_values(":total", AttributeValue::N(total.to_string()))
-            .expression_attribute_values(":zero", AttributeValue::N("0".to_string()))
             .expression_attribute_values(":status", AttributeValue::S(VideoStatus::Processing.as_str().to_string()))
             .send()
             .await
@@ -133,15 +132,16 @@ impl DatabaseClient {
 
     /// Called by Transcode Workers. 
     /// Atomically increments the processed count. Returns `Some(total_segments)` if this was the final segment.
-    pub async fn increment_processed(&self, video_id: &str) -> Result<Option<u32>, DatabaseError> {
+    pub async fn increment_processed(&self, video_id: &str, resolution: &str) -> Result<Option<u32>, DatabaseError> {
+        let count_field = format!("processed_{}", resolution);
         let response = self.client
             .update_item()
             .table_name(&self.table_name)
             .key("video_id", AttributeValue::S(video_id.to_string()))
             // The ADD keyword natively performs an atomic increment on numeric fields
-            .update_expression("ADD processed_segments :one")
+            .update_expression("ADD #res_count :one")
+            .expression_attribute_names("#res_count", &count_field)
             .expression_attribute_values(":one", AttributeValue::N("1".to_string()))
-            // We ask DynamoDB to return the new state of the row after the math is done
             .return_values(ReturnValue::AllNew) 
             .send()
             .await
@@ -149,15 +149,37 @@ impl DatabaseClient {
 
         // Evaluate if the video is fully processed
         if let Some(attributes) = response.attributes() {
-            let processed = extract_u32(attributes, "processed_segments");
-            let total = extract_u32(attributes, "total_segments");
-
-            if processed > 0 && processed == total {
-                return Ok(Some(total)); // All segments are done!
+            let total_raw_segments = extract_u32(attributes, "total_raw_segments");
+            let processed_for_this_res = extract_u32(attributes, &count_field);
+            if processed_for_this_res > 0 && processed_for_this_res == total_raw_segments {
+                return Ok(Some(total_raw_segments)); // All segments for this resolution are done!
             }
         }
 
         Ok(None)
+    }
+
+    /// Fetches the total raw segments and the processed counts for all resolutions
+    pub async fn get_video_stats(&self, video_id: &str) -> Result<(u32, std::collections::HashMap<String, u32>), DatabaseError> {
+        let response = self.client
+            .get_item()
+            .table_name(&self.table_name)
+            .key("video_id", AttributeValue::S(video_id.to_string()))
+            .send()
+            .await
+            .map_err(|e| DatabaseError::FetchFailed(e.to_string()))?;
+
+        let item = response.item().ok_or_else(|| DatabaseError::NotFound(video_id.to_string()))?;
+
+        let total = extract_u32(item, "total_raw_segments");
+        
+        let mut processed = std::collections::HashMap::new();
+        for res in ["1080p", "720p", "480p", "360p"] {
+            let key = format!("processed_{}", res);
+            processed.insert(res.to_string(), extract_u32(item, &key));
+        }
+
+        Ok((total, processed))
     }
 }
 // A quick helper function to parse DynamoDB numbers safely
