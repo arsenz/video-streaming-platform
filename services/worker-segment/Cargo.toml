@@ -1,0 +1,13 @@
+[package]
+name = "worker-segment"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+shared-core = { path = "../../libs/shared-core" }
+tokio = { workspace = true, features = ["process", "fs"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

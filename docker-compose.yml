@@ -1,0 +1,31 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  localstack:
+    image: localstack/localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3,sqs,dynamodb
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localhost:4566
+      - R2_ENDPOINT_URL=http://localhost:4566
+      - QUEUE_BASE_URL=http://localhost:4566/000000000000
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      # This runs our script automatically when the container boots!
+      - "./localstack-init/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh"
+  api-server:
+    build: 
+      context: .
+      dockerfile: services/api-server/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - DYNAMODB_TABLE=videos
+    depends_on:
+      - localstack

@@ -1,0 +1,15 @@
+[workspace]
+members = [
+    "libs/shared-core",
+    "services/api-server",
+    "services/worker-segment",
+    "services/worker-transcode"
+]
+resolver = "2"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "2.0"
