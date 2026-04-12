@@ -237,3 +237,47 @@ video {
 .btn:hover {
     background: #2563eb;
 }
+
+/* Share Link Container */
+.link-container {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--panel-border);
+}
+
+.link-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    outline: none;
+    font-family: monospace;
+    padding: 0 0.5rem;
+}
+
+/* Resolution Selector */
+.control-group {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+}
+
+.control-group select {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-main);
+    border: 1px solid var(--panel-border);
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    outline: none;
+    cursor: pointer;
+}
+
+.control-group select option {
+    background: var(--bg-color);
+}

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Streamify - HD Video Platform</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style.css?v=4">
 </head>
 <body>
     <div class="background-effects">
@@ -45,11 +45,22 @@
             <!-- Video Player Section -->
             <section id="playerSection" class="glass-panel hidden">
                 <h2>Ready to Watch</h2>
+                
+                <div class="link-container">
+                    <input type="text" id="shareUrlInput" class="link-input" readonly>
+                    <button id="copyUrlBtn" class="btn">Copy Link</button>
+                </div>
+
                 <div class="video-container">
                     <video id="videoPlayer" controls></video>
                 </div>
                 <div class="resolutions-info">
-                    <span>Streaming smoothly via HLS.js</span>
+                    <div class="control-group">
+                        <label for="resolutionSelect">Quality:</label>
+                        <select id="resolutionSelect">
+                            <option value="-1">Auto</option>
+                        </select>
+                    </div>
                     <button class="btn" onclick="location.reload()">Upload Another</button>
                 </div>
             </section>
@@ -57,6 +68,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script src="/app.js"></script>
+    <script src="/app.js?v=5"></script>
 </body>
 </html>

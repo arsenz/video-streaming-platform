@@ -16,12 +16,15 @@ services:
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./local-stack-init/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh"
+      - "./local-stack-init/cors.json:/etc/localstack/init/ready.d/cors.json"
 
   frontend:
     build:
       context: ./frontend
     ports:
       - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html
     depends_on:
       - api-server
 
@@ -66,6 +69,8 @@ services:
       context: .
       args:
         BIN_NAME: worker-transcode
+    deploy:
+      replicas: 4  # <--- Spawns 4 independent container workers instantly
     environment:
       - AWS_ENDPOINT_URL=http://localstack:4566
       - DYNAMODB_TABLE=videos

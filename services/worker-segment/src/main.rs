@@ -140,8 +140,6 @@ async fn do_process_video(
         .arg("4") // 4-second segments
         .arg("-c:v")
         .arg("libx264")
-        .arg("-reset_timestamps")
-        .arg("1")
         .arg(&output_pattern)
         .output()
         .await

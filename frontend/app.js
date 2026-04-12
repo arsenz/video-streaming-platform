@@ -10,6 +10,15 @@ const jobStatusText = document.getElementById('jobStatusText');
 
 const R2_PUBLIC_BASE = 'http://localhost:4566/video-uploads';
 
+// Read query params for direct sharing link
+document.addEventListener('DOMContentLoaded', () => {
+    const params = new URLSearchParams(window.location.search);
+    const sharedVideoId = params.get('v');
+    if (sharedVideoId) {
+        pollStatus(sharedVideoId);
+    }
+});
+
 // Drag & Drop Styling
 dropZone.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -116,7 +125,7 @@ async function pollStatus(videoId) {
                 jobStatusText.innerText = "Segmenting & Parallel Transcoding in progress...";
             } else if (data.status === 'ready') {
                 clearInterval(interval);
-                showPlayer(videoId);
+                showPlayer(videoId, data.url || `${R2_PUBLIC_BASE}/transcoded/${videoId}/master.m3u8`);
             }
         } catch (e) {
             console.error('Polling error', e);
@@ -124,29 +133,102 @@ async function pollStatus(videoId) {
     }, 2000);
 }
 
-function showPlayer(videoId) {
+function showPlayer(videoId, videoUrl) {
     statusSection.classList.add('hidden');
     playerSection.classList.remove('hidden');
 
     const videoElement = document.getElementById('videoPlayer');
-    // M3U8 Master URL in S3
-    const videoSrc = `${R2_PUBLIC_BASE}/transcoded/${videoId}/master.m3u8`;
+    const shareUrlInput = document.getElementById('shareUrlInput');
+    const copyUrlBtn = document.getElementById('copyUrlBtn');
+    const resolutionSelect = document.getElementById('resolutionSelect');
+
+    // Create the fully qualified app URL
+    const appShareUrl = `${window.location.origin}/?v=${videoId}`;
+
+    // Populate the Shareable URL Box
+    shareUrlInput.value = appShareUrl;
+    
+    // Clear old listeners by cloning the node (prevents duplicating copy events)
+    const newCopyBtn = copyUrlBtn.cloneNode(true);
+    copyUrlBtn.parentNode.replaceChild(newCopyBtn, copyUrlBtn);
+
+    newCopyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(appShareUrl).then(() => {
+            newCopyBtn.innerText = "Copied!";
+            setTimeout(() => newCopyBtn.innerText = "Copy Link", 2000);
+        });
+    });
 
     if (Hls.isSupported()) {
         const hls = new Hls({
-            // Tweaks for smoother playback
             lowLatencyMode: true,
         });
-        hls.loadSource(videoSrc);
-        hls.attachMedia(videoElement);
+        let isRefreshing = false;
+
         hls.on(Hls.Events.MANIFEST_PARSED, function () {
             console.log("Manifest parsed! Quality levels:", hls.levels.map(l => l.height + "p"));
+            
+            // Clear prior options
+            resolutionSelect.innerHTML = '';
+            const autoOpt = document.createElement('option');
+            autoOpt.value = -1;
+            autoOpt.text = 'Auto';
+            resolutionSelect.appendChild(autoOpt);
+
+            // Populate our new Resolution Dropdown
+            hls.levels.forEach((level, index) => {
+                const opt = document.createElement('option');
+                opt.value = index;
+                opt.text = level.height + 'p';
+                resolutionSelect.appendChild(opt);
+            });
+
+            // Listen for manual selection
+            resolutionSelect.addEventListener('change', (e) => {
+                hls.currentLevel = parseInt(e.target.value);
+            });
+            
+            isRefreshing = false;
         });
-        // Auto play
+
+        hls.loadSource(videoUrl);
+        hls.attachMedia(videoElement);
         videoElement.play().catch(() => { });
+
+        // Background poller to magically upgrade stream quality when HD workers finish
+        window.hdCheckInterval = setInterval(async () => {
+            if (isRefreshing) return;
+            try {
+                const res = await fetch(videoUrl + '?t=' + Date.now());
+                const text = await res.text();
+                const matches = text.match(/RESOLUTION=/g);
+                const availableLevelsCount = matches ? matches.length : 0;
+                
+                // If the master playlist has MORE resolutions than hls.js currently knows about
+                if (availableLevelsCount > hls.levels.length) {
+                    console.log("New HD resolutions detected! Upgrading stream in place...");
+                    isRefreshing = true;
+                    const currentTime = videoElement.currentTime;
+                    const isPlaying = !videoElement.paused;
+                    
+                    // Tell HLS to swap the underlying pipeline
+                    hls.loadSource(videoUrl);
+                    
+                    hls.once(Hls.Events.MANIFEST_PARSED, () => {
+                        videoElement.currentTime = currentTime;
+                        if (isPlaying) videoElement.play().catch(()=>{});
+                    });
+
+                    // Stop polling once we safely hit 3 variants (1080p, 720p, 480p)
+                    if (availableLevelsCount >= 3) {
+                        clearInterval(window.hdCheckInterval);
+                    }
+                }
+            } catch(e) {}
+        }, 5000);
     } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
         // Native Apple Safari fallback
-        videoElement.src = videoSrc;
+        videoElement.src = videoUrl;
         videoElement.play();
     } else {
         alert("Your browser does not support HLS.");

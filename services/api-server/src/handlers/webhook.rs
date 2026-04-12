@@ -46,8 +46,9 @@ pub async fn handle_r2_upload(
         .map_err(|e| ApiError::Internal(format!("Failed to serialize job: {}", e)))?;
 
     // Push it to SQS!
+    let queue_url = format!("{}/segmentation-queue", state.queue_base_url);
     state.queue.push_job(
-        "http://localhost:4566/000000000000/segmentation-queue", 
+        &queue_url, 
         &job_string
     ).await.map_err(|e| ApiError::Internal(e.to_string()))?;
 

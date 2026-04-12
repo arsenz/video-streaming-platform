@@ -13,6 +13,7 @@ pub struct AppState {
     pub db: DatabaseClient,
     pub storage: StorageClient,
     pub queue: Arc<dyn JobQueue>,
+    pub queue_base_url: String,
 }
 
 #[tokio::main]
@@ -39,7 +40,8 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(AppState {
         db: infra.db,
         storage: infra.storage,
-        queue: Arc::new(infra.queue)
+        queue: Arc::new(infra.queue),
+        queue_base_url: infra.queue_base_url,
     });
 
     // Build the Axum Router

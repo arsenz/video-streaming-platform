@@ -114,6 +114,7 @@ async fn do_process_transcode(
     //  Execute FFmpeg for the specific format
     let output = tokio::process::Command::new("ffmpeg")
         .arg("-y") // Overwrite without prompting
+        .arg("-copyts") // Preserve continuous segment timestamps
         .arg("-i")
         .arg(&input_path)
         .arg("-vf")
