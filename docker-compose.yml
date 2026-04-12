@@ -38,7 +38,7 @@ services:
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_REGION=us-east-1
-      - R2_ENDPOINT_URL=http://localstack:4566
+      - R2_ENDPOINT_URL=http://localhost:4566
       - QUEUE_BASE_URL=http://localstack:4566/000000000000
       - PUBLIC_CDN_URL=http://localhost:4566
     depends_on:
