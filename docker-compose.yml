@@ -3,11 +3,10 @@ version: '3.8'
 
 services:
   localstack:
-    image: localstack/localstack
+    image: localstack/localstack:3.8.1
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=s3,sqs,dynamodb
       - AWS_DEFAULT_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
@@ -17,7 +16,7 @@ services:
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       # This runs our script automatically when the container boots!
-      - "./localstack-init/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh"
+      - "./local-stack-init/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh"
   api-server:
     build: 
       context: .

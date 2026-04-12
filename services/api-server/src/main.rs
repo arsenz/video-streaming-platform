@@ -1,5 +1,5 @@
 // services/api-server/src/main.rs
-use shared_core::{db::DatabaseClient, queue::{JobQueue, SqsQueue}, storage::StorageClient};
+use shared_core::{db::DatabaseClient, infra::CoreInfrastructure, queue::{JobQueue, SqsQueue}, storage::StorageClient};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use std::{env, sync::Arc};
 use tower_http::cors::CorsLayer;
@@ -17,9 +17,7 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Default to LocalStack, but allow production to pass a real AWS/R2 endpoint
-    let aws_endpoint = env::var("AWS_ENDPOINT_URL")
-        .unwrap_or_else(|_| "http://localhost:4566".to_string());
+   
     // This looks for the RUST_LOG environment variable, or defaults to "info" level
     tracing_subscriber::registry()
         .with(
@@ -34,18 +32,14 @@ async fn main() -> anyhow::Result<()> {
     let port = env::var("PORT")
         .unwrap_or_else(|_| "3000".to_string());
         
-    let db_table_name = env::var("DYNAMODB_TABLE")
-        .unwrap_or_else(|_| "videos".to_string());
-
-    // Pass these configs to infrastructure clients
-    let db_client = DatabaseClient::new(Some(aws_endpoint.clone()), &db_table_name).await;
-    let storage_client = StorageClient::new(&aws_endpoint, "video-uploads").await;
     
-    let sqs_client = SqsQueue::new(Some(aws_endpoint)).await;
+
+    let infra = CoreInfrastructure::load_defaults().await;
+
     let state = Arc::new(AppState {
-        db: db_client,
-        storage: storage_client,
-        queue: Arc::new(sqs_client)
+        db: infra.db,
+        storage: infra.storage,
+        queue: Arc::new(infra.queue)
     });
 
     // Build the Axum Router

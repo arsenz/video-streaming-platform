@@ -7,7 +7,7 @@ edition = "2024"
 shared-core = { path = "../../libs/shared-core" }
 anyhow = {workspace =  true}
 axum = "0.8.8"
-tower-http = { version = "0.6.8", features = ["cors"] }
+tower-http = { version = "0.6.8", features = ["cors", "fs"] }
 tokio = {workspace = true}
 thiserror.workspace = true
 tracing = "0.1.44"
@@ -15,3 +15,6 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 serde_json.workspace = true
 serde.workspace = true
 ulid = "1.2.1"
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json", "stream"] }

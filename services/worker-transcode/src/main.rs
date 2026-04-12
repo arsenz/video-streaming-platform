@@ -6,15 +6,20 @@ use shared_core::{
     queue::JobQueue,
     storage::StorageClient,
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use std::path::Path;
 use tracing::{error, info};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+const RESOLUTIONS: [&str; 3] = ["1080p", "720p", "480p"];
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize Tracing
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "worker_transcode=info".into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "worker_transcode=info".into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -27,11 +32,11 @@ async fn main() -> Result<()> {
     let queue_low = format!("{}/transcode-queue-low", infra.queue_base_url);
 
     loop {
-        // 1. Try High Priority First
+        // Try High Priority First
         let mut job_result = infra.queue.pull_job(&queue_high).await;
         let mut active_queue = &queue_high;
 
-        // 2. Fallback to Low Priority if High is empty
+        // Fallback to Low Priority if High is empty
         if let Ok(None) = job_result {
             job_result = infra.queue.pull_job(&queue_low).await;
             active_queue = &queue_low;
@@ -40,11 +45,15 @@ async fn main() -> Result<()> {
         match job_result {
             Ok(Some((payload, receipt_handle))) => {
                 let job: TranscodeJob = serde_json::from_str(&payload).unwrap(); // handle errs
-                
+
                 // process_transcode() now only runs FFmpeg for job.resolution
                 match process_transcode(&job, &infra).await {
-                    Ok(_) => { infra.queue.ack_job(active_queue, &receipt_handle).await?; }
-                    Err(e) => { /* Handle error */ }
+                    Ok(_) => {
+                        infra.queue.ack_job(active_queue, &receipt_handle).await?;
+                    }
+                    Err(_e) => {
+                        // Do not ack the job, let it time out and retry
+                    }
                 }
             }
             Ok(None) => continue,
@@ -60,68 +69,163 @@ async fn process_transcode(job: &TranscodeJob, infra: &CoreInfrastructure) -> Re
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-    
-    // Create an isolated working directory for this specific chunk
-    let work_dir = format!("/tmp/transcode_{}_{}", job.video_id, safe_segment_name);
+
+    // Create an isolated working directory for this specific chunk and resolution
+    let work_dir = format!(
+        "/tmp/transcode_{}_{}_{}",
+        job.video_id, job.resolution, safe_segment_name
+    );
     tokio::fs::create_dir_all(&work_dir).await?;
 
+    let result = do_process_transcode(job, infra, &work_dir, &safe_segment_name).await;
+
+    //  Cleanup local temporary files to prevent volume exhaustion ALWAYS
+    tokio::fs::remove_dir_all(&work_dir).await.ok();
+
+    result
+}
+
+async fn do_process_transcode(
+    job: &TranscodeJob,
+    infra: &CoreInfrastructure,
+    work_dir: &str,
+    safe_segment_name: &str,
+) -> Result<()> {
     let input_path = format!("{}/input.ts", work_dir);
-    
-    // 1. Download the raw segment from R2 / LocalStack
+
+    // Download the raw segment from R2 / LocalStack
     info!(video_id = %job.video_id, "Downloading raw segment: {}", job.segment_name);
-    infra.storage.download_file(&job.segment_name, &input_path).await
+    infra
+        .storage
+        .download_file(&job.segment_name, &input_path)
+        .await
         .context("Failed to download segment")?;
 
-    // Define the target resolutions and bitrates
-    // Format: (Resolution Name, Scale parameters, Video Bitrate)
-    let renditions = vec![
-        ("1080p", "1920:1080", "5000k"),
-        ("720p", "1280:720", "2800k"),
-        ("480p", "854:480", "1400k"),
-    ];
+    //  Determine target resolution and bitrate
+    let (scale, bitrate) = match job.resolution.as_str() {
+        "1080p" => ("1920:1080", "5000k"),
+        "720p" => ("1280:720", "2800k"),
+        "480p" => ("854:480", "1400k"),
+        "360p" => ("640:360", "800k"),
+        _ => anyhow::bail!("Unsupported resolution: {}", job.resolution),
+    };
 
-    // 3. Transcode the chunk into all renditions
-    for (name, scale, bitrate) in renditions {
-        let output_path = format!("{}/{}_{}", work_dir, name, safe_segment_name);
-        
-        info!(video_id = %job.video_id, "Transcoding to {} ({})", name, scale);
-        
-        let output = tokio::process::Command::new("ffmpeg")
-            .arg("-y") // Overwrite without prompting
-            .arg("-i").arg(&input_path)
-            .arg("-vf").arg(format!("scale={}", scale))
-            .arg("-b:v").arg(bitrate)
-            .arg("-c:v").arg("libx264")
-            .arg("-c:a").arg("aac") // Ensure audio is universally compatible
-            .arg(&output_path)
-            .output()
-            .await
-            .context(format!("Failed to execute FFmpeg for {}", name))?;
+    let output_path = format!("{}/{}_{}", work_dir, job.resolution, safe_segment_name);
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("FFmpeg failed for {}: {}", name, stderr);
-        }
+    info!(video_id = %job.video_id, "Transcoding to {} ({})", job.resolution, scale);
 
-        // 4. Upload the transcoded chunk to the target CDN directory
-        let r2_output_key = format!("transcoded/{}/{}/{}", job.video_id, name, safe_segment_name);
-        infra.storage.upload_file(&r2_output_key, &output_path).await
-            .context(format!("Failed to upload transcoded segment {}", name))?;
+    //  Execute FFmpeg for the specific format
+    let output = tokio::process::Command::new("ffmpeg")
+        .arg("-y") // Overwrite without prompting
+        .arg("-i")
+        .arg(&input_path)
+        .arg("-vf")
+        .arg(format!("scale={}", scale))
+        .arg("-b:v")
+        .arg(bitrate)
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-c:a")
+        .arg("aac") // Ensure audio is universally compatible
+        .arg(&output_path)
+        .output()
+        .await
+        .context(format!("Failed to execute FFmpeg for {}", job.resolution))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("FFmpeg failed for {}: {}", job.resolution, stderr);
     }
 
-    // 5. Update the Database Atomically
+    //  Upload the transcoded chunk to the target CDN directory
+    let r2_output_key = format!(
+        "transcoded/{}/{}/{}",
+        job.video_id, job.resolution, safe_segment_name
+    );
+    infra
+        .storage
+        .upload_file(&r2_output_key, &output_path)
+        .await
+        .context(format!(
+            "Failed to upload transcoded segment {}",
+            job.resolution
+        ))?;
+
+    //  Update the Database Atomically
     // This uses the ADD expression you set up to handle parallel worker completion perfectly
-    let is_final_segment = infra.db.increment_processed(&job.video_id).await
+    let is_final_segment = infra
+        .db
+        .increment_processed(&job.video_id)
+        .await
         .context("Failed to increment processed segment count")?;
 
-    if is_final_segment {
-        info!(video_id = %job.video_id, "✅ Final segment transcoded! Marking video as Ready.");
-        infra.db.update_status(&job.video_id, VideoStatus::Ready).await
+    if let Some(total_jobs_completed) = is_final_segment {
+        info!(video_id = %job.video_id, total = total_jobs_completed, "✅ Final segment transcoded! Generating HLS Playlists...");
+
+        // Generate and upload the HLS Playlists
+        generate_hls_playlists(job, infra, total_jobs_completed).await?;
+
+        // Finally, Update Status to 'Ready'
+        infra
+            .db
+            .update_status(&job.video_id, VideoStatus::Ready)
+            .await
             .context("Failed to update video status to Ready")?;
     }
 
-    // 6. Cleanup local temporary files to prevent volume exhaustion
-    tokio::fs::remove_dir_all(&work_dir).await?;
+    Ok(())
+}
 
+async fn generate_hls_playlists(
+    job: &TranscodeJob,
+    infra: &CoreInfrastructure,
+    total_jobs: u32,
+) -> Result<()> {
+    // The total jobs created was segments_count * number of resolutions.
+    // By dividing by 3 (the number of resolutions), we get the segment count.
+
+    let segments_count = total_jobs / (RESOLUTIONS.len() as u32);
+
+    //  Generate Variant Playlists recursively for each resolution
+    for res in &RESOLUTIONS {
+        let mut playlist = String::from(
+            "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n",
+        );
+        for i in 0..segments_count {
+            playlist.push_str(&format!("#EXTINF:4.000000,\nsegment_{:03}.ts\n", i));
+        }
+        playlist.push_str("#EXT-X-ENDLIST\n");
+
+        let m3u8_key = format!("transcoded/{}/{}/playlist.m3u8", job.video_id, res);
+
+        let temp_m3u8_path = format!("/tmp/{}_{}.m3u8", job.video_id, res);
+        tokio::fs::write(&temp_m3u8_path, &playlist).await?;
+        infra
+            .storage
+            .upload_file(&m3u8_key, &temp_m3u8_path)
+            .await?;
+        tokio::fs::remove_file(&temp_m3u8_path).await.ok();
+    }
+
+    //  Generate Master Playlist
+    let master_m3u8 = "#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080
+1080p/playlist.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720
+720p/playlist.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=854x480
+480p/playlist.m3u8
+".to_string();
+
+    let master_key = format!("transcoded/{}/master.m3u8", job.video_id);
+    let temp_master_path = format!("/tmp/{}_master.m3u8", job.video_id);
+    tokio::fs::write(&temp_master_path, &master_m3u8).await?;
+    infra
+        .storage
+        .upload_file(&master_key, &temp_master_path)
+        .await?;
+    tokio::fs::remove_file(&temp_master_path).await.ok();
+
+    info!(video_id = %job.video_id, "HLS playlists generated and uploaded successfully.");
     Ok(())
 }

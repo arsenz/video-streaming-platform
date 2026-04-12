@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streamify - HD Video Platform</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="background-effects">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+    
+    <div class="container">
+        <header>
+            <h1>Streamify</h1>
+            <p>HLS Video Processing & Playback</p>
+        </header>
+
+        <main>
+            <!-- Upload Section -->
+            <section id="uploadSection" class="glass-panel">
+                <h2>Upload Video</h2>
+                <div class="upload-area" id="dropZone">
+                    <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/x-m4v,video/*">
+                    <p>Drag & Drop or <span class="highlight">Browse</span></p>
+                </div>
+                <div class="progress-bar-container hidden" id="uploadProgressContainer">
+                    <div class="progress-bar" id="uploadProgressBar"></div>
+                </div>
+                <p id="uploadStatusText"></p>
+            </section>
+
+            <!-- Status Polling Section -->
+            <section id="statusSection" class="glass-panel hidden">
+                <h2>Processing Strategy</h2>
+                <div class="status-indicator">
+                    <div class="spinner"></div>
+                    <span id="jobStatusText">Waiting for chunks...</span>
+                </div>
+            </section>
+
+            <!-- Video Player Section -->
+            <section id="playerSection" class="glass-panel hidden">
+                <h2>Ready to Watch</h2>
+                <div class="video-container">
+                    <video id="videoPlayer" controls></video>
+                </div>
+                <div class="resolutions-info">
+                    <span>Streaming smoothly via HLS.js</span>
+                    <button class="btn" onclick="location.reload()">Upload Another</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="/app.js"></script>
+</body>
+</html>

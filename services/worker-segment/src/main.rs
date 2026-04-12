@@ -1,11 +1,15 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use shared_core::{
-    db::{DatabaseClient, VideoStatus}, infra::CoreInfrastructure, models::{SegmentationJob, TranscodeJob}, queue::{JobQueue, SqsQueue}, storage::StorageClient
+    db::{DatabaseClient, VideoStatus},
+    infra::CoreInfrastructure,
+    models::{SegmentationJob, TranscodeJob},
+    queue::{JobQueue, SqsQueue},
+    storage::StorageClient,
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use std::{env, sync::Arc};
 use tracing::{error, info};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 const RESOLUTIONS: [&str; 3] = ["1080p", "720p", "480p"];
 
@@ -13,7 +17,10 @@ const RESOLUTIONS: [&str; 3] = ["1080p", "720p", "480p"];
 async fn main() -> Result<()> {
     // Initialize Tracing
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "worker_segmentation=info".into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "worker_segmentation=info".into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -21,8 +28,8 @@ async fn main() -> Result<()> {
 
     // Initialize Infrastructure
     let infra = CoreInfrastructure::load_defaults().await;
-    
-    // 2. Build the exact queue URLs dynamically
+
+    //  Build the exact queue URLs dynamically
     let segmentation_queue_url = format!("{}/segmentation-queue", infra.queue_base_url);
     let transcode_queue_url = format!("{}/transcode-queue", infra.queue_base_url);
 
@@ -34,7 +41,10 @@ async fn main() -> Result<()> {
                     Ok(j) => j,
                     Err(e) => {
                         error!("Poison pill received (bad JSON): {}. Deleting.", e);
-                        let _ = infra.queue.ack_job(&segmentation_queue_url, &receipt_handle).await;
+                        let _ = infra
+                            .queue
+                            .ack_job(&segmentation_queue_url, &receipt_handle)
+                            .await;
                         continue;
                     }
                 };
@@ -42,10 +52,21 @@ async fn main() -> Result<()> {
                 info!(video_id = %job.video_id, "Picked up segmentation job");
 
                 // Segment the video
-                match process_video(&job, &infra.db, &infra.queue, &infra.storage, &infra.queue_base_url).await {
+                match process_video(
+                    &job,
+                    &infra.db,
+                    &infra.queue,
+                    &infra.storage,
+                    &infra.queue_base_url,
+                )
+                .await
+                {
                     Ok(_) => {
                         info!(video_id = %job.video_id, "Segmentation complete. Acking message.");
-                        infra.queue.ack_job(&segmentation_queue_url, &receipt_handle).await?;
+                        infra
+                            .queue
+                            .ack_job(&segmentation_queue_url, &receipt_handle)
+                            .await?;
                     }
                     Err(e) => {
                         error!(video_id = %job.video_id, "Failed to segment video: {:#}", e);
@@ -76,22 +97,53 @@ async fn process_video(
     let work_dir = format!("/tmp/spart_video_{}", job.video_id);
     tokio::fs::create_dir_all(&work_dir).await?;
 
-    let input_path = format!("/tmp/uploads/{}", job.file_name); // Assume downloaded here
+    let result = do_process_video(job, db, queue, storage, queue_base_url, &work_dir).await;
+
+    // Cleanup local temp files ALWAYS regardless of success or failure
+    tokio::fs::remove_dir_all(&work_dir).await.ok();
+
+    result
+}
+
+async fn do_process_video(
+    job: &SegmentationJob,
+    db: &DatabaseClient,
+    queue: &SqsQueue,
+    storage: &StorageClient,
+    queue_base_url: &str,
+    work_dir: &str,
+) -> Result<()> {
+    let input_path = format!("{}/input_file", work_dir);
     let output_pattern = format!("{}/segment_%03d.ts", work_dir);
 
-    // Execute FFmpeg ensuring GOP at I-keyframes
+    //  Download original file from storage (Cloudflare R2 mock)
+    info!(video_id = %job.video_id, "Downloading original video from storage...");
+    storage
+        .download_file(&job.file_name, &input_path)
+        .await
+        .context("Failed to download original video")?;
+
+    //  Execute FFmpeg ensuring GOP at I-keyframes
     info!(video_id = %job.video_id, "Starting FFmpeg segmentation...");
-    
+
     let output = tokio::process::Command::new("ffmpeg")
-        .arg("-i").arg(&input_path)
+        .arg("-i")
+        .arg(&input_path)
         // Force GOP (Group of Pictures) size to 48 frames, creating I-keyframes exactly at those boundaries
-        .arg("-g").arg("48")
-        .arg("-keyint_min").arg("48")
-        .arg("-sc_threshold").arg("0") // Disable scene change detection so chunks are strictly uniform
-        .arg("-f").arg("segment")
-        .arg("-segment_time").arg("4") // 4-second segments
-        .arg("-c:v").arg("libx264")
-        .arg("-reset_timestamps").arg("1")
+        .arg("-g")
+        .arg("48")
+        .arg("-keyint_min")
+        .arg("48")
+        .arg("-sc_threshold")
+        .arg("0") // Disable scene change detection so chunks are strictly uniform
+        .arg("-f")
+        .arg("segment")
+        .arg("-segment_time")
+        .arg("4") // 4-second segments
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-reset_timestamps")
+        .arg("1")
         .arg(&output_pattern)
         .output()
         .await
@@ -128,8 +180,10 @@ async fn process_video(
     for segment in segments {
         let local_file_path = format!("{}/{}", work_dir, segment);
         let r2_object_key = format!("segments/{}/{}", job.video_id, segment);
-        
-        storage.upload_file(&r2_object_key, &local_file_path).await
+
+        storage
+            .upload_file(&r2_object_key, &local_file_path)
+            .await
             .context(format!("Failed to upload segment {}", segment))?;
 
         for resolution in &RESOLUTIONS {
@@ -138,9 +192,9 @@ async fn process_video(
                 segment_name: r2_object_key.clone(),
                 resolution: resolution.to_string(),
             };
-            
+
             let payload = serde_json::to_string(&transcode_job)?;
-            
+
             // Route lower resolutions to the HIGH priority queue
             let target_queue = if *resolution == "480p" || *resolution == "360p" {
                 format!("{}/transcode-queue-high", queue_base_url)
@@ -151,9 +205,6 @@ async fn process_video(
             queue.push_job(&target_queue, &payload).await?;
         }
     }
-
-    // Cleanup local temp files
-    tokio::fs::remove_dir_all(&work_dir).await?;
 
     Ok(())
 }

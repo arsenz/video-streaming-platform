@@ -132,8 +132,8 @@ impl DatabaseClient {
     }
 
     /// Called by Transcode Workers. 
-    /// Atomically increments the processed count. Returns `true` if this was the final segment.
-    pub async fn increment_processed(&self, video_id: &str) -> Result<bool, DatabaseError> {
+    /// Atomically increments the processed count. Returns `Some(total_segments)` if this was the final segment.
+    pub async fn increment_processed(&self, video_id: &str) -> Result<Option<u32>, DatabaseError> {
         let response = self.client
             .update_item()
             .table_name(&self.table_name)
@@ -153,11 +153,11 @@ impl DatabaseClient {
             let total = extract_u32(attributes, "total_segments");
 
             if processed > 0 && processed == total {
-                return Ok(true); // All segments are done!
+                return Ok(Some(total)); // All segments are done!
             }
         }
 
-        Ok(false)
+        Ok(None)
     }
 }
 // A quick helper function to parse DynamoDB numbers safely
