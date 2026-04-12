@@ -1,6 +1,6 @@
 use crate::{handlers::ApiError, AppState};
 use axum::{extract::State, Json};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use shared_core::models::SegmentationJob;
 use std::{path::Path, sync::Arc};
 

@@ -1,5 +1,5 @@
 // services/api-server/src/main.rs
-use shared_core::{db::DatabaseClient, infra::CoreInfrastructure, queue::{JobQueue, SqsQueue}, storage::StorageClient};
+use shared_core::{db::DatabaseClient, infra::CoreInfrastructure, queue::JobQueue, storage::StorageClient};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use std::{env, sync::Arc};
 use tower_http::cors::CorsLayer;

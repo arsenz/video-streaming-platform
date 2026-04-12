@@ -1,13 +1,12 @@
 use anyhow::{Context, Result};
 use shared_core::{
-    db::{DatabaseClient, VideoStatus},
+    db::VideoStatus,
     infra::CoreInfrastructure,
     models::TranscodeJob,
     queue::JobQueue,
-    storage::StorageClient,
 };
 use std::path::Path;
-use tracing::{error, info};
+use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 const RESOLUTIONS: [&str; 3] = ["1080p", "720p", "480p"];

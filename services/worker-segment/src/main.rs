@@ -1,13 +1,11 @@
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 use shared_core::{
-    db::{DatabaseClient, VideoStatus},
+    db::DatabaseClient,
     infra::CoreInfrastructure,
     models::{SegmentationJob, TranscodeJob},
     queue::{JobQueue, SqsQueue},
     storage::StorageClient,
 };
-use std::{env, sync::Arc};
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -31,7 +29,7 @@ async fn main() -> Result<()> {
 
     //  Build the exact queue URLs dynamically
     let segmentation_queue_url = format!("{}/segmentation-queue", infra.queue_base_url);
-    let transcode_queue_url = format!("{}/transcode-queue", infra.queue_base_url);
+    let _transcode_queue_url = format!("{}/transcode-queue", infra.queue_base_url);
 
     // The Infinite Polling Loop
     loop {
