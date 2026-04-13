@@ -46,13 +46,6 @@ docker compose up --build
 # Navigate to: http://localhost:8080/
 ```
 
-### Watching Logs
-
-Because the architecture leverages complex asynchronous fan-out processing, it is highly recommended to inspect real-time logs inside the system to watch your tasks rapidly orchestrate through SQS queues:
-
-```bash
-docker compose logs -f
-```
 
 ## 📈 Scalability Settings
 
