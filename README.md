@@ -6,6 +6,10 @@ All infrastructure natively runs locally over Docker Compose through **LocalStac
 
 ---
 
+##  🗺️ System Design
+Read [System Design](docs/system-design.md) for both high level and detailed overviews of the system: how it scales horizontally, estimated costs and rationale for certain decisions.
+---
+
 ## 🏗️ Architecture
 
 - **Frontend (`/frontend`)**: Glassmorphism themed Vanilla UI running on NGINX over `:8080`. Supports drag-and-drop, direct S3 uploads, and dynamic clipboard-sharing links via native URL params. Polling-based live metadata injects seamlessly into an embedded `hls.js` adaptive video player.
